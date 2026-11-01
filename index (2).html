@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<title>Thi Tiếng Anh Trực Tuyến</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+body{font-family:'Be Vietnam Pro',system-ui,sans-serif;background:#f4f3ee;color:#14213d;-webkit-tap-highlight-color:transparent}
+.ns{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.ns textarea{-webkit-user-select:text;user-select:text}
+textarea,input,select,button{font-family:inherit}
+.qh u{text-decoration:underline;text-underline-offset:3px}
+.qh{white-space:pre-line;overflow-wrap:anywhere}
+.pbtn{width:2.25rem;height:2.25rem;border-radius:.5rem;border:1px solid #cbd5e1;background:#fff;font-size:.8rem;font-weight:600;color:#334155}
+.pbtn.done{background:#0f766e;border-color:#0f766e;color:#fff}
+.pbtn.flag{box-shadow:0 0 0 2px #f59e0b}
+@keyframes pulse2{50%{opacity:.55}}.warn{animation:pulse2 1s infinite}
+@media print{body{display:none!important}}
+</style>
+</head>
+<body>
+<div id="app"></div><div id="modal"></div><div id="toast" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-[60]"></div>
+<script>
+"use strict";
+/* =====================================================================
+   CẤU HÌNH LƯU TRỮ
+   - Để trống: dữ liệu lưu trong trình duyệt của máy đang mở (chỉ để dùng thử,
+     hoặc thi tại phòng máy dùng chung 1 máy chủ).
+   - Dán địa chỉ Firebase Realtime Database để HS ở nhiều máy/điện thoại cùng ghi
+     kết quả về cho giáo viên. Ví dụ: "https://ten-du-an-default-rtdb.firebaseio.com"
+   ===================================================================== */
+const FIREBASE_URL = "";
+
+const LV=["Nhận biết","Thông hiểu","Vận dụng","Vận dụng cao"], LK=["NB","TH","VD","VDC"], AB="ABCDEF";
+const FB=FIREBASE_URL.trim().replace(/\/$/,""), LS="examdb2";
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+const shuf=a=>{a=[...a];for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a};
+const norm=s=>String(s??"").trim().replace(/[^A-Za-z0-9]/g,"");
+const fmt=t=>t?new Date(t).toLocaleString("vi-VN"):"";
+const fmtT=t=>t?new Date(t).toLocaleTimeString("vi-VN"):"";
+const mmss=ms=>{const s=Math.max(0,Math.round(ms/1000));return String(Math.floor(s/60)).padStart(2,"0")+":"+String(s%60).padStart(2,"0")};
+const dur=r=>r.end&&r.start?mmss(r.end-r.start):"";
+const plainT=h=>String(h||"").replace(/<br\s*\/?>/gi," ").replace(/<[^>]+>/g," ").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&amp;/g,"&").replace(/\s+/g," ").trim();
+const arr=x=>Array.isArray(x)?x:Object.values(x||{});
+const H=s=>{let a=0xdeadbeef,b=0x41c6ce57;for(let i=0,c;i<s.length;i++){c=s.charCodeAt(i);a=Math.imul(a^c,2654435761);b=Math.imul(b^c,1597334677)}a=Math.imul(a^(a>>>16),2246822507)^Math.imul(b^(b>>>13),3266489909);b=Math.imul(b^(b>>>16),2246822507)^Math.imul(a^(a>>>13),3266489909);return(4294967296*(2097151&b)+(a>>>0)).toString(36)};
+async function sha(s){try{const b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(s));return[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,"0")).join("")}catch(e){return H(s)+H([...s].reverse().join(""))+H("x"+s)}}
+const pwHash=(id,pw)=>sha(`pw|${id}|${pw}`);
+
+/* ===== LỚP LƯU TRỮ (localStorage hoặc Firebase REST) ===== */
+const ldb=()=>{try{return JSON.parse(localStorage.getItem(LS)||"{}")}catch(e){return{}}};
+const bad=r=>{if(!r.ok)throw new Error("Không kết nối được cơ sở dữ liệu (mã "+r.status+"). Kiểm tra mạng hoặc quy tắc Firebase.")};
+const DB={
+ async get(p){
+  if(FB){const r=await fetch(`${FB}/${p}.json`);bad(r);return r.json()}
+  let o=ldb();for(const k of p.split("/"))o=o?.[k];return o??null},
+ async set(p,v){
+  if(FB){const r=await fetch(`${FB}/${p}.json`,{method:"PUT",body:JSON.stringify(v),keepalive:JSON.stringify(v).length<60000});bad(r);return}
+  const t=ldb(),ks=p.split("/");let o=t;ks.slice(0,-1).forEach(k=>o=(o[k]&&typeof o[k]==="object")?o[k]:(o[k]={}));
+  if(v==null)delete o[ks.at(-1)];else o[ks.at(-1)]=v;localStorage.setItem(LS,JSON.stringify(t))},
+ async patch(p,v){
+  if(FB){const r=await fetch(`${FB}/${p}.json`,{method:"PATCH",body:JSON.stringify(v),keepalive:true});bad(r);return}
+  const t=ldb();let o=t;p.split("/").forEach(k=>o=(o[k]&&typeof o[k]==="object")?o[k]:(o[k]={}));Object.assign(o,v);localStorage.setItem(LS,JSON.stringify(t))}
+};
+
+/* ===== TRẠNG THÁI ===== */
+const defCfg=()=>({title:"Bài kiểm tra Tiếng Anh",minutes:45,open:true,allowReg:true,showScore:false,matrix:{mc:[0,0,0,0],es:[0,0,0,0]}});
+const S={view:"login",reg:false,user:null,cfg:defCfg(),res:null,tab:"bank",active:false,fin:false,fs:false,t0:0,timer:null,hb:null,flags:new Set(),
+ students:{},rlist:[],bank:[],keys:{},K:"",pv:null,flt:{lv:"all",ty:"all",q:""},rf:{q:"",st:"all"},initd:true,dbErr:""};
+const modal=h=>$("#modal").innerHTML=h||"";
+const er=m=>{const e=$("#err");if(e){e.textContent=m;e.classList.remove("hidden")}else alert(m)};
+let tt;const toast=(m,bad)=>{const t=$("#toast");t.innerHTML=`<div class="px-4 py-2.5 rounded-lg shadow-lg text-sm font-medium text-white ${bad?"bg-red-700":"bg-[#14213d]"}">${esc(m)}</div>`;clearTimeout(tt);tt=setTimeout(()=>t.innerHTML="",3500)};
+const cfgNum=c=>[...arr(c.matrix?.mc),...arr(c.matrix?.es)].reduce((a,b)=>a+(+b||0),0);
+const mx=(t,l)=>+(arr(S.cfg.matrix?.[t])[l]||0);
+
+/* ===== GIAO DIỆN CHUNG ===== */
+const inp="w-full border border-slate-300 rounded-lg px-3 py-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-teal-600 focus:border-teal-600";
+const B1="bg-teal-700 hover:bg-teal-800 active:bg-teal-900 text-white font-semibold rounded-lg px-4 py-2.5 transition";
+const B2="bg-white border border-slate-300 hover:bg-slate-50 font-medium rounded-lg px-3 py-2 text-sm transition";
+const CARD="bg-white border border-slate-200 rounded-xl shadow-sm";
+const ERR=`<p id="err" class="hidden text-sm text-red-800 bg-red-50 border border-red-200 rounded-lg p-3 mb-4"></p>`;
+const brand=c=>`<div class="flex items-center gap-3"><div class="w-10 h-10 rounded-lg bg-teal-600 text-white grid place-items-center font-extrabold">EN</div><div class="${c?"text-[#14213d]":"text-white"} font-bold leading-tight">${esc(S.cfg.title)}<div class="text-xs font-normal ${c?"text-slate-500":"text-white/60"}">Thi trực tuyến · chống gian lận</div></div></div>`;
+function shell(inner){return `<div class="min-h-screen lg:grid lg:grid-cols-[5fr_6fr]">
+ <aside class="hidden lg:flex flex-col justify-between bg-[#14213d] text-white p-12">${brand(false)}
+  <div><h2 class="text-4xl font-extrabold leading-tight mb-6">Làm bài thi<br>nghiêm túc, công bằng.</h2>
+  <ul class="space-y-3 text-white/80 text-sm max-w-sm"><li>✔ Mỗi học sinh một mã đề riêng, câu hỏi và đáp án A–D được xáo ngẫu nhiên.</li><li>✔ Đồng hồ đếm ngược, tự nộp bài khi hết giờ.</li><li>✔ Rời khỏi màn hình làm bài là bài thi bị khóa ngay.</li></ul></div>
+  <p class="text-xs text-white/40">${FB?"Kết nối cơ sở dữ liệu trực tuyến":"Chế độ cục bộ: dữ liệu lưu trên trình duyệt này"}</p></aside>
+ <section class="flex items-center justify-center p-5 min-h-screen lg:min-h-0"><div class="w-full max-w-md ${CARD} lg:shadow-none lg:border-0 lg:bg-transparent p-6 sm:p-8"><div class="lg:hidden mb-6">${brand(true)}</div>${inner}</div></section></div>`}
+let lastView="";
+function render(){$("#app").innerHTML=({login:vLogin,admin:vAdminLogin,intro:vIntro,exam:vExam,result:vResult,dash:vDash})[S.view]();if(lastView!==S.view){window.scrollTo(0,0);lastView=S.view}}
+const safe=fn=>async(...a)=>{try{await fn(...a)}catch(e){console.error(e);er(e.message||String(e))}};
+
+/* ===== ĐĂNG NHẬP / ĐĂNG KÝ HỌC SINH ===== */
+const lab=(t,h)=>`<label class="block text-sm font-medium text-slate-700">${t}${h}</label>`;
+function vLogin(){const r=S.reg;
+ return shell(`<h1 class="text-2xl font-bold">${r?"Tạo tài khoản":"Đăng nhập làm bài"}</h1>
+ <p class="text-sm text-slate-500 mt-1 mb-6">${r?"Dùng mã định danh / CCCD của bạn làm tên đăng nhập.":"Nhập mã định danh / CCCD và mật khẩu. Nếu giáo viên chưa cấp mật khẩu, mật khẩu bạn nhập ở lần đầu sẽ được lưu lại."}</p>
+ ${S.dbErr?`<p class="text-sm text-red-800 bg-red-50 border border-red-200 rounded-lg p-3 mb-4">${esc(S.dbErr)}</p>`:""}${ERR}
+ <form class="space-y-3" onsubmit="event.preventDefault();${r?"doReg()":"doLogin()"}">
+  ${lab("Mã định danh / CCCD",`<input id="f_id" class="${inp} mt-1" inputmode="numeric" autocomplete="username" autofocus>`)}
+  ${r?lab("Họ và tên",`<input id="f_name" class="${inp} mt-1" autocomplete="name">`):""}
+  ${lab("Mật khẩu",`<input id="f_pw" type="password" class="${inp} mt-1" autocomplete="${r?"new-password":"current-password"}">`)}
+  <button class="${B1} w-full py-3">${r?"Tạo tài khoản":"Đăng nhập"}</button></form>
+ <div class="flex justify-between text-sm mt-6 text-teal-800 font-medium">
+  ${r||S.cfg.allowReg?`<button onclick="S.reg=!S.reg;render()">${r?"Đã có tài khoản? Đăng nhập":"Chưa có tài khoản? Đăng ký"}</button>`:"<span></span>"}
+  <button onclick="openAdmin()">Dành cho giáo viên</button></div>`)}
+
+const doLogin=safe(async()=>{
+ const id=norm($("#f_id").value),pw=$("#f_pw").value;
+ if(!id||!pw)return er("Nhập đủ mã định danh và mật khẩu.");
+ const a=await DB.get("students/"+id);
+ if(!a)return er("Chưa có tài khoản này. Hãy đăng ký hoặc nhờ giáo viên nạp danh sách.");
+ const h=await pwHash(id,pw);
+ if(!a.pw){await DB.patch("students/"+id,{pw:h})}else if(a.pw!==h)return er("Sai mật khẩu.");
+ S.user={id,name:a.name};S.cfg=Object.assign(defCfg(),await DB.get("pub/config")||{});S.view="intro";render()});
+
+const doReg=safe(async()=>{
+ const id=norm($("#f_id").value),name=$("#f_name").value.trim(),pw=$("#f_pw").value;
+ if(!id||!name||pw.length<4)return er("Nhập đủ thông tin; mật khẩu tối thiểu 4 ký tự.");
+ if(!S.cfg.allowReg)return er("Giáo viên đã tắt đăng ký tự do.");
+ const a=await DB.get("students/"+id);
+ if(a?.pw)return er("Mã định danh này đã có tài khoản. Hãy đăng nhập.");
+ const nm=a?.name||name;await DB.set("students/"+id,{name:nm,pw:await pwHash(id,pw)});
+ S.user={id,name:nm};S.view="intro";render()});
+
+/* ===== MÀN HÌNH CHỜ THI ===== */
+function vIntro(){const c=S.cfg,n=cfgNum(c);
+ return shell(`<p class="text-sm text-slate-500">Xin chào</p><h1 class="text-2xl font-bold mb-5">${esc(S.user.name)}</h1>
+ <div class="grid grid-cols-2 gap-3 mb-5 text-center"><div class="bg-slate-100 rounded-xl p-3"><b class="text-3xl">${c.minutes}</b><br><span class="text-xs text-slate-500">phút</span></div><div class="bg-slate-100 rounded-xl p-3"><b class="text-3xl">${n}</b><br><span class="text-xs text-slate-500">câu hỏi</span></div></div>
+ <div class="text-sm bg-red-50 border border-red-200 text-red-900 rounded-xl p-4 mb-4 space-y-1.5"><b>Quy chế thi nghiêm ngặt</b>
+  <ul class="list-disc pl-5 space-y-1"><li>Chỉ được thi <b>một lần</b>.</li><li>Chuyển tab, mở ứng dụng khác, bấm ra ngoài cửa sổ, thoát toàn màn hình hoặc tải lại trang: <b>bài thi bị khóa ngay, nhận 0 điểm</b>.</li><li>Không sao chép, dán, chuột phải, chụp màn hình.</li><li>Đồng hồ chạy liên tục; hết giờ hệ thống tự nộp bài.</li></ul></div>
+ <label class="flex gap-2 items-start text-sm mb-4"><input id="agree" type="checkbox" class="mt-1 accent-teal-700 w-4 h-4"><span>Tôi đã đọc, hiểu và cam kết tuân thủ quy chế thi.</span></label>${ERR}
+ <button onclick="startExam()" class="${B1} w-full py-3 text-lg">Bắt đầu làm bài</button>
+ <button onclick="S.user=null;S.view='login';render()" class="w-full text-sm text-slate-500 mt-4">Đăng xuất</button>`)}
+
+const exitFs=()=>{if(document.fullscreenElement)document.exitFullscreen?.().catch(()=>{});S.fs=false};
+const startExam=safe(async()=>{
+ if(!$("#agree").checked)return er("Hãy tích xác nhận đã đọc quy chế thi.");
+ const btn=document.querySelector("button[onclick='startExam()']");btn.disabled=true;btn.textContent="Đang chuẩn bị đề...";
+ try{ document.documentElement.requestFullscreen?.().then(()=>S.fs=true).catch(()=>{}); }catch(e){}
+ const fail=m=>{exitFs();btn.disabled=false;btn.textContent="Bắt đầu làm bài";er(m)};
+ const id=S.user.id,[c0,old]=await Promise.all([DB.get("pub/config"),DB.get("results/"+id)]);
+ const c=S.cfg=Object.assign(defCfg(),c0||{});
+ if(old){exitFs();
+  if(old.status==="doing"){const u={status:"violation",reason:"Thoát / tải lại trang khi đang thi",end:Date.now(),violationAt:Date.now(),score:0};Object.assign(old,u);await DB.patch("results/"+id,u);S.res=old;S.view="result";render();return violationModal(old)}
+  S.res=old;S.view="result";return render()}
+ if(!c.open)return fail("Phòng thi đang đóng. Hãy chờ giáo viên mở phòng thi.");
+ const bank=arr(await DB.get("pub/bank")).filter(Boolean),G={mc:[],es:[]};
+ for(const ty of["mc","es"])for(let l=0;l<4;l++){
+  const n=mx(ty,l),pool=shuf(bank.filter(q=>q.lv==l&&q.type==ty));
+  if(pool.length<n)return fail(`Ngân hàng thiếu câu ${ty=="mc"?"trắc nghiệm":"tự luận"} mức "${LV[l]}". Hãy báo giáo viên.`);
+  G[ty].push(...pool.slice(0,n))}
+ const fixed=q=>(q.opts||[]).some(o=>{const t=plainT(o);return/(all|none) of the above|cả hai|tất cả các|không có đáp án/i.test(t)||/\bboth [A-D]\b|\b[A-D] and [A-D]\b/.test(t)});
+ const mk=q=>{const n=q.opts.length,om=fixed(q)?[...Array(n).keys()]:shuf([...Array(n).keys()]);return{id:q.id,type:"mc",lv:q.lv,ins:q.ins||"",pas:q.pas||"",q:q.q,opts:om.map(k=>q.opts[k]),om}};
+ const qs=[...shuf(G.mc).map(mk),...shuf(G.es).map(q=>({id:q.id,type:"es",lv:q.lv,ins:q.ins||"",pas:q.pas||"",q:q.q}))];
+ if(!qs.length)return fail("Giáo viên chưa đặt ma trận đề (số câu đang bằng 0). Hãy báo giáo viên vào tab \"Ma trận & cài đặt\", nhập số câu rồi bấm Lưu.");
+ const code=H(qs.map(q=>q.id+(q.om||"")).join(",")).slice(0,4).toUpperCase();
+ S.res={id,name:S.user.name,cccd:id,code,start:Date.now(),dl:c.minutes*60000,status:"doing",hb:Date.now(),qs,answers:{}};
+ await DB.set("results/"+id,S.res);
+ try{sessionStorage.setItem("examActive",id)}catch(e){}
+ S.view="exam";S.fin=false;S.flags=new Set();S.w5=0;render();S.t0=Date.now();S.active=true;
+ S.timer=setInterval(tick,1000);tick();
+ S.hb=setInterval(()=>DB.patch("results/"+id,{hb:Date.now(),answers:S.res.answers}).catch(()=>{}),15000)});
+
+/* ===== MÀN HÌNH LÀM BÀI ===== */
+function pal(){return `<div class="flex flex-wrap gap-1.5">${S.res.qs.map((q,i)=>`<button type="button" data-p="${i}" onclick="goQ(${i})" class="pbtn">${i+1}</button>`).join("")}</div>
+ <p class="text-xs text-slate-500 mt-3"><span class="inline-block w-3 h-3 rounded bg-teal-700 align-middle"></span> đã trả lời &nbsp; <span class="inline-block w-3 h-3 rounded border-2 border-amber-500 align-middle"></span> đánh dấu</p>`}
+function vExam(){const r=S.res;let lastTy="",pIns="",pPas="";
+ const cards=r.qs.map((q,i)=>{let pre="";
+  if(q.type!==lastTy){pre+=`<h2 class="font-bold text-lg pt-3">${q.type=="mc"?"Phần I. Trắc nghiệm":"Phần II. Tự luận ngắn"}</h2>`;lastTy=q.type;pIns=pPas=""}
+  if((q.pas||"")!==pPas){if(q.pas)pre+=`<div class="${CARD} p-4 bg-amber-50/60 border-amber-200 text-[15px] leading-relaxed qh">${q.pas}</div>`;pPas=q.pas||""}
+  if((q.ins||"")!==pIns){if(q.ins)pre+=`<p class="text-sm italic text-slate-600 qh">${q.ins}</p>`;pIns=q.ins||""}
+  return pre+`<section id="q${i}" class="${CARD} p-4 sm:p-5 scroll-mt-24"><div class="flex justify-between items-start gap-3 mb-3"><p class="font-semibold leading-relaxed"><span class="text-teal-800">Câu ${i+1}.</span> <span class="font-normal qh">${q.q}</span></p>
+   <button type="button" id="fl${i}" onclick="flag(${i})" class="shrink-0 text-xs text-slate-500 border border-slate-200 rounded-md px-2 py-1">🚩 Đánh dấu</button></div>
+  ${q.type=="mc"?q.opts.map((o,j)=>`<label class="flex gap-3 items-start border border-slate-200 rounded-lg p-3 mb-2 cursor-pointer hover:bg-slate-50 has-[:checked]:border-teal-700 has-[:checked]:bg-teal-50"><input type="radio" name="q${i}" class="mt-1 accent-teal-700 w-4 h-4" onchange="ans(${i},${j})"><span class="qh"><b>${AB[j]}.</b> ${o}</span></label>`).join("")
+  :`<textarea rows="3" class="${inp}" placeholder="Nhập câu trả lời..." oninput="ans(${i},this.value)" onpaste="return false" ondrop="return false" autocomplete="off" autocorrect="off" spellcheck="false"></textarea>`}</section>`}).join("");
+ return `<div class="ns" oncontextmenu="return false"><header class="sticky top-0 z-10 bg-[#14213d] text-white shadow"><div class="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
+ <div class="text-sm leading-tight min-w-0"><b class="block truncate">${esc(r.name)}</b><span class="opacity-70">Mã đề ${esc(r.code)} · đã làm <span id="cnt">0</span>/${r.qs.length}</span></div>
+ <div id="tm" class="font-mono text-2xl font-bold bg-white/10 rounded-lg px-3 py-1">--:--</div></div><div class="h-1 bg-white/10"><div id="bar" class="h-1 bg-teal-400 transition-all" style="width:0"></div></div></header>
+ <div class="max-w-5xl mx-auto p-4 lg:grid lg:grid-cols-[1fr_15rem] lg:gap-6 items-start">
+  <main class="space-y-4 min-w-0"><details class="lg:hidden ${CARD} p-3"><summary class="text-sm font-semibold cursor-pointer">Danh sách câu hỏi</summary><div class="mt-3">${pal()}</div></details>${cards}
+   <button onclick="askSubmit()" class="${B1} w-full py-3 text-lg">Nộp bài</button><p class="text-center text-xs text-slate-400 pb-6">Bài làm được lưu tự động.</p></main>
+  <aside class="hidden lg:block sticky top-24 ${CARD} p-4"><p class="font-semibold text-sm mb-3">Danh sách câu hỏi</p>${pal()}<button onclick="askSubmit()" class="${B1} w-full mt-4 text-sm">Nộp bài</button></aside></div></div>`}
+
+const goQ=i=>document.getElementById("q"+i)?.scrollIntoView({behavior:"smooth",block:"start"});
+function flag(i){S.flags.has(i)?S.flags.delete(i):S.flags.add(i);upd()}
+const answered=v=>v!==undefined&&v!==null&&v!==""&&!(typeof v==="string"&&!v.trim());
+function upd(){const a=S.res.answers,n=S.res.qs.length;let c=0;
+ S.res.qs.forEach((q,i)=>{const d=answered(a[i]);if(d)c++;document.querySelectorAll(`[data-p="${i}"]`).forEach(b=>{b.classList.toggle("done",d);b.classList.toggle("flag",S.flags.has(i))});const f=$("#fl"+i);if(f)f.textContent=S.flags.has(i)?"🚩 Bỏ đánh dấu":"🚩 Đánh dấu"});
+ $("#cnt").textContent=c;$("#bar").style.width=(c/n*100)+"%"}
+let saveT;
+function ans(i,v){if(!answered(v))delete S.res.answers[i];else S.res.answers[i]=v;upd();
+ clearTimeout(saveT);saveT=setTimeout(()=>DB.patch("results/"+S.res.id,{answers:S.res.answers,hb:Date.now()}).catch(()=>{}),500)}
+function tick(){const l=S.res.start+S.res.dl-Date.now(),t=$("#tm");if(!t||S.fin)return;
+ t.textContent=mmss(l);t.classList.toggle("text-red-300",l<60000);t.classList.toggle("warn",l<60000);
+ if(l<=0)finish("done","Hết giờ — hệ thống tự động nộp bài");
+ else if(l<=300000&&!S.w5){S.w5=1;toast("Còn 5 phút!")}}
+function askSubmit(){const un=S.res.qs.filter((q,i)=>!answered(S.res.answers[i])).length;
+ modal(`<div class="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"><div class="bg-white rounded-xl p-6 max-w-sm w-full"><h3 class="font-bold text-lg mb-2">Nộp bài?</h3><p class="text-sm text-slate-600 mb-4">${un?`Bạn còn <b>${un}</b> câu chưa trả lời. `:""}Sau khi nộp sẽ không sửa được.</p><div class="flex gap-2"><button onclick="modal('')" class="${B2} flex-1">Làm tiếp</button><button onclick="modal('');finish('done','Học sinh tự nộp bài')" class="${B1} flex-1">Nộp bài</button></div></div></div>`)}
+
+/* ===== CHỐNG GIAN LẬN ===== */
+const viol=r=>{if(S.active&&Date.now()-S.t0>1500)finish("violation",r)};
+document.addEventListener("visibilitychange",()=>document.hidden&&viol("Chuyển tab / ẩn trình duyệt / mở ứng dụng khác"));
+addEventListener("blur",()=>viol("Rời khỏi cửa sổ làm bài (mất tiêu điểm)"));
+addEventListener("pagehide",()=>{S.unloading=true;viol("Đóng hoặc tải lại trang")});
+addEventListener("beforeunload",e=>{if(S.active){e.preventDefault();e.returnValue=""}});
+document.addEventListener("fullscreenchange",()=>{if(S.fs&&!document.fullscreenElement)viol("Thoát chế độ toàn màn hình")});
+["copy","cut","contextmenu","dragstart","selectstart"].forEach(e=>document.addEventListener(e,x=>{if(S.active&&!(e==="selectstart"&&x.target?.tagName==="TEXTAREA"))x.preventDefault()}));
+document.addEventListener("keydown",e=>{if(!S.active)return;const k=e.key.toLowerCase();
+ if(e.key==="F12"||e.key==="PrintScreen"||((e.ctrlKey||e.metaKey)&&["c","x","v","p","s","u"].includes(k))||((e.ctrlKey||e.metaKey)&&e.shiftKey&&["i","j","c","s"].includes(k)))e.preventDefault()});
+document.addEventListener("keyup",e=>{if(S.active&&e.key==="PrintScreen")navigator.clipboard?.writeText("").catch(()=>{})});
+
+/* ===== CHẤM ĐIỂM ===== */
+function grade(r,keys){const qs=arr(r.qs),a=r.answers||{};let ok=0,tot=0,tes=0,es=0;
+ qs.forEach((q,i)=>{if(q.type==="mc"){tot++;const s=a[i];if(answered(s)&&arr(q.om)[s]===keys?.[q.id]?.ans)ok++}else{tes++;es+=+(r.esg?.[i]||0)}});
+ r.ok=ok;r.tot=tot;r.tes=tes;r.esS=es;r.score=tot?+(ok/tot*10).toFixed(2):0;
+ r.total=tes?+((ok+es)/(tot+tes)*10).toFixed(2):r.score;
+ r.pend=tes?qs.filter((q,i)=>q.type==="es"&&r.esg?.[i]==null).length:0;return r}
+function zero(r){r.ok=0;r.tot=arr(r.qs).filter(q=>q.type==="mc").length;r.tes=arr(r.qs).length-r.tot;r.esS=0;r.score=0;r.total=0;r.pend=0}
+const finish=async(status,reason)=>{
+ if(S.fin||!S.res)return;S.fin=true;S.active=false;clearInterval(S.timer);clearInterval(S.hb);clearTimeout(saveT);if(!S.unloading)try{sessionStorage.removeItem("examActive")}catch(e){}
+ const r=S.res,end=Date.now(),u={status,reason,end,answers:r.answers||{}};
+ if(status==="violation"){u.violationAt=end;u.score=0}
+ Object.assign(r,u);
+ let p=DB.patch("results/"+r.id,u);   // gửi đi ngay (đồng bộ) để kịp khi đóng trang
+ exitFs();S.view="result";render();if(status==="violation")violationModal(r);
+ if(status==="done"){let okSync=false;
+  for(let k=0;k<6&&!okSync;k++){try{await p;okSync=true}catch(e){await new Promise(z=>setTimeout(z,2000));p=DB.patch("results/"+r.id,u)}}
+  const el=$("#sync");if(el)el.innerHTML=okSync?"✔ Bài làm đã được gửi lên hệ thống.":"⚠ Chưa gửi được bài. Giữ nguyên trang này, bật mạng rồi bấm Gửi lại.";
+  if(!okSync&&el)el.innerHTML+=` <button class="underline" onclick="resend()">Gửi lại</button>`;
+  if(okSync&&S.cfg.showScore){try{const k=await DB.get("pub/keys");if(k){grade(r,k);await DB.patch("results/"+r.id,{score:r.score,ok:r.ok,tot:r.tot});S.view="result";render()}}catch(e){}}}
+ else await p.catch(()=>{})};
+const resend=safe(async()=>{const r=S.res;await DB.patch("results/"+r.id,{status:r.status,reason:r.reason,end:r.end,answers:r.answers});$("#sync").textContent="✔ Bài làm đã được gửi lên hệ thống."});
+function violationModal(r){
+ modal(`<div class="fixed inset-0 z-50 bg-red-700 text-white flex items-center justify-center p-6 text-center"><div class="max-w-md"><div class="text-6xl mb-3">⛔</div><h2 class="text-2xl font-bold mb-2">Bài thi đã bị khóa</h2><p class="text-lg mb-1">Vi phạm quy chế thi — 0 điểm</p><p class="opacity-90 mb-1">Lý do: ${esc(r.reason)}</p><p class="opacity-90 mb-6">Thời điểm vi phạm: ${fmt(r.violationAt||r.end)}</p><button onclick="modal('')" class="bg-white text-red-700 font-semibold rounded-lg px-5 py-2.5">Đã hiểu</button></div></div>`)}
+
+/* ===== KẾT QUẢ HỌC SINH ===== */
+function vResult(){const r=S.res,v=r.status==="violation",sc=S.cfg.showScore&&r.status==="done"&&r.score!=null&&r.tot!=null;
+ return shell(`<div class="text-center"><div class="text-5xl mb-2">${v?"⛔":"✅"}</div><h1 class="text-xl font-bold mb-1">${v?"Vi phạm quy chế thi — 0 điểm":"Bạn đã nộp bài"}</h1>
+ <p class="text-sm text-slate-500 mb-4">${esc(r.name)} · Mã đề ${esc(r.code)}</p>
+ ${v?`<p class="text-sm text-red-800 bg-red-50 rounded-lg p-3">Lý do: ${esc(r.reason)}<br>Lúc ${fmt(r.violationAt||r.end)}</p>`
+ :sc?`<div class="bg-slate-100 rounded-xl p-4"><div class="text-4xl font-bold text-teal-800">${r.score}<span class="text-lg text-slate-400">/10</span></div><p class="text-sm text-slate-500">Trắc nghiệm đúng ${r.ok}/${r.tot} câu · Làm trong ${dur(r)}</p></div><p class="text-xs text-slate-500 mt-3">Phần tự luận (nếu có) do giáo viên chấm.</p>`
+ :`<div class="bg-slate-100 rounded-xl p-4 text-sm text-slate-600">Thời gian làm bài: <b>${dur(r)||"—"}</b><br>Điểm sẽ do giáo viên công bố.</div><p id="sync" class="text-xs text-slate-500 mt-3"></p>`}
+ <button onclick="S.user=null;S.res=null;S.view='login';render()" class="${B2} mt-6">Thoát</button></div>`)}
+
+/* ===== QUẢN TRỊ: ĐĂNG NHẬP ===== */
+const openAdmin=safe(async()=>{try{S.initd=!!(await DB.get("meta/init"))}catch(e){S.initd=true}S.view="admin";render()});
+function vAdminLogin(){const first=!S.initd;
+ return shell(`<h1 class="text-2xl font-bold">Khu vực giáo viên</h1><p class="text-sm text-slate-500 mt-1 mb-6">${first?"Lần đầu sử dụng: hãy tạo mật khẩu quản trị. Hãy ghi nhớ mật khẩu này — không thể khôi phục.":"Nhập mật khẩu quản trị."}</p>${ERR}
+ <form class="space-y-3" onsubmit="event.preventDefault();adminLogin()"><input id="ap" type="password" class="${inp}" placeholder="Mật khẩu quản trị" autocomplete="current-password">
+ ${first?`<input id="ap2" type="password" class="${inp}" placeholder="Nhập lại mật khẩu" autocomplete="new-password">`:""}
+ <button class="${B1} w-full py-3">${first?"Tạo mật khẩu và vào":"Đăng nhập"}</button></form>
+ <button onclick="S.view='login';render()" class="w-full text-sm text-slate-500 mt-5">← Về trang học sinh</button>`)}
+const adminLogin=safe(async()=>{const p=$("#ap").value;
+ if(p.length<4)return er("Mật khẩu tối thiểu 4 ký tự.");
+ const K=await sha("teacher|"+p),init=await DB.get("meta/init");
+ if(!init){if(p!==$("#ap2").value)return er("Hai mật khẩu không khớp.");await DB.set(`sec/${K}/created`,Date.now());await DB.set("meta/init",true)}
+ else if(!(await DB.get(`sec/${K}/created`)))return er("Sai mật khẩu.");
+ S.K=K;S.view="dash";await loadAdmin()});
+
+async function loadAdmin(){
+ const [cfg,bank,keys]=await Promise.all([DB.get("pub/config"),DB.get("pub/bank"),DB.get(`sec/${S.K}/keys`)]);
+ S.cfg=Object.assign(defCfg(),cfg||{});S.keys=keys||{};
+ S.bank=arr(bank).filter(Boolean).map(q=>({...q,opts:q.opts?arr(q.opts):undefined,...(S.keys[q.id]||{})})).sort((a,b)=>(a.n||0)-(b.n||0));
+ await loadRes(true)}
+async function loadRes(full){
+ const [stu,res]=await Promise.all([DB.get("students"),DB.get("results")]);S.students=stu||{};
+ S.rlist=Object.values(res||{}).filter(Boolean).sort((a,b)=>b.start-a.start);
+ S.rlist.forEach(r=>{const o=[r.score,r.ok,r.tot];
+  if(r.status==="violation")zero(r);else if(r.status==="done"){grade(r,S.keys);if(o[0]!==r.score||o[1]!==r.ok||o[2]!==r.tot)DB.patch("results/"+r.id,{score:r.score,ok:r.ok,tot:r.tot}).catch(()=>{})}else{grade(r,S.keys);r.score=null;r.total=null}});
+ if(full)render();else updRes()}
+
+/* ===== QUẢN TRỊ: KHUNG ===== */
+function vDash(){const t=S.tab,tabs=[["bank","Ngân hàng câu hỏi"],["setup","Ma trận & cài đặt"],["students","Tài khoản học sinh"],["results","Kết quả thi"]],c=S.cfg;
+ return `<header class="bg-[#14213d] text-white"><div class="max-w-6xl mx-auto px-4 py-3 flex flex-wrap gap-3 justify-between items-center"><b>Quản trị · ${esc(c.title)}</b>
+ <div class="flex items-center gap-3 text-sm"><button onclick="toggleOpen()" class="rounded-full px-3 py-1 font-semibold ${c.open?"bg-teal-500 text-white":"bg-red-500 text-white"}">Phòng thi: ${c.open?"ĐANG MỞ":"ĐÃ ĐÓNG"}</button><button onclick="S.view='login';S.K='';render()" class="underline">Thoát</button></div></div></header>
+ <nav class="bg-white border-b"><div class="max-w-6xl mx-auto flex overflow-x-auto px-2">${tabs.map(([k,n])=>`<button onclick="S.tab='${k}';${k=="results"?"loadRes(true)":"render()"}" class="px-4 py-3 text-sm whitespace-nowrap ${t==k?"border-b-2 border-teal-700 text-teal-800 font-semibold":"text-slate-500"}">${n}</button>`).join("")}</div></nav>
+ <main class="max-w-6xl mx-auto p-4">${cfgNum(c)===0?`<div class="mb-4 rounded-xl border border-amber-300 bg-amber-50 text-amber-900 text-sm p-3"><b>Chưa thể cho học sinh thi:</b> ma trận đề đang là 0 câu. Vào tab <button class="underline font-semibold" onclick="S.tab='setup';render()">Ma trận & cài đặt</button>, nhập số câu từng mức (hoặc bấm "Dùng hết ngân hàng"), rồi bấm <b>Lưu cài đặt</b>.</div>`:""}${({bank:tBank,setup:tSetup,students:tStu,results:tRes})[t]()}</main>`}
+const saveCfg=async()=>{await DB.set("pub/config",S.cfg);if(S.cfg.showScore)await DB.set("pub/keys",Object.fromEntries(S.bank.map(q=>[q.id,q.type==="mc"?{ans:q.ans}:{key:q.key||""}])));else await DB.set("pub/keys",null)};
+const toggleOpen=safe(async()=>{S.cfg.open=!S.cfg.open;await saveCfg();render();toast(S.cfg.open?"Đã mở phòng thi":"Đã đóng phòng thi")});
+
+/* ===== NGÂN HÀNG: LƯU ===== */
+const saveBank=async()=>{
+ const pub={},keys={};
+ S.bank.forEach((q,i)=>{q.n=q.n||Date.now()+i;pub[q.id]={id:q.id,n:q.n,lv:q.lv,type:q.type,q:q.q,ins:q.ins||null,pas:q.pas||null,...(q.type==="mc"?{opts:q.opts}:{})};keys[q.id]=q.type==="mc"?{ans:q.ans}:{key:q.key||""}});
+ S.keys=keys;await DB.set("pub/bank",S.bank.length?pub:null);await DB.set(`sec/${S.K}/keys`,S.bank.length?keys:null);
+ if(S.cfg.showScore)await DB.set("pub/keys",keys)};
+const sv=safe(async()=>{await saveBank();toast("Đã lưu")});
+
+/* ===== NẠP ĐỀ TỪ WORD (.docx): đáp án đúng là chữ in đậm ===== */
+async function unzip(buf,names){
+ const dv=new DataView(buf),u8=new Uint8Array(buf);let e=u8.length-22;
+ while(e>=0&&dv.getUint32(e,true)!==0x06054b50)e--;
+ if(e<0)throw new Error("Đây không phải file .docx hợp lệ (hãy lưu lại file dưới dạng Word .docx).");
+ const n=dv.getUint16(e+10,true);let p=dv.getUint32(e+16,true);const out={};
+ for(let k=0;k<n;k++){
+  const method=dv.getUint16(p+10,true),csz=dv.getUint32(p+20,true),nl=dv.getUint16(p+28,true),el=dv.getUint16(p+30,true),cl=dv.getUint16(p+32,true),off=dv.getUint32(p+42,true);
+  const name=new TextDecoder().decode(u8.subarray(p+46,p+46+nl));p+=46+nl+el+cl;if(!names.includes(name))continue;
+  const st=off+30+dv.getUint16(off+26,true)+dv.getUint16(off+28,true),data=u8.subarray(st,st+csz);
+  out[name]=method===0?new TextDecoder().decode(data):new TextDecoder().decode(await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream("deflate-raw"))).arrayBuffer())}
+ return out}
+const wc=(el,t)=>el&&[...el.children].find(c=>c.tagName===t);
+const wOn=el=>{if(!el)return false;const v=(el.getAttribute("w:val")||"").toLowerCase();return !["0","false","off","none"].includes(v)};
+async function readDocx(file){
+ const f=await unzip(await file.arrayBuffer(),["word/document.xml","word/styles.xml"]);
+ if(!f["word/document.xml"])throw new Error("Không đọc được nội dung file Word.");
+ const P=x=>new DOMParser().parseFromString(x,"application/xml"),doc=P(f["word/document.xml"]),sty={};
+ if(f["word/styles.xml"])for(const s of P(f["word/styles.xml"]).getElementsByTagName("w:style")){const rp=wc(s,"w:rPr");
+  sty[s.getAttribute("w:styleId")]={b:wOn(wc(rp,"w:b")),u:wOn(wc(rp,"w:u")),i:wOn(wc(rp,"w:i"))}}
+ const paras=[];
+ for(const p of doc.getElementsByTagName("w:p")){
+  const pp=wc(p,"w:pPr"),ps=sty[wc(pp,"w:pStyle")?.getAttribute("w:val")]||{},num=wc(wc(pp,"w:numPr"),"w:numId"),li=!!num&&num.getAttribute("w:val")!=="0",runs=[];
+  for(const r of p.getElementsByTagName("w:r")){
+   const rp=wc(r,"w:rPr"),rs=sty[wc(rp,"w:rStyle")?.getAttribute("w:val")]||{},va=wc(rp,"w:vertAlign")?.getAttribute("w:val");
+   const flag=(tag,k)=>{const e=wc(rp,tag);return e?wOn(e):!!(rs[k]||ps[k])};
+   let t="";for(const c of r.children){if(c.tagName==="w:t")t+=c.textContent;else if(c.tagName==="w:tab")t+="\t";else if((c.tagName==="w:br"&&c.getAttribute("w:type")!=="page")||c.tagName==="w:cr")t+="\n";else if(c.tagName==="w:noBreakHyphen")t+="-"}
+   if(t)runs.push({t:t.replace(/ /g," "),b:flag("w:b","b"),u:flag("w:u","u"),i:flag("w:i","i"),sup:va==="superscript",sub:va==="subscript"})}
+  paras.push({runs,li})}
+ return paras}
+
+const plainR=rs=>rs.map(r=>r.t).join("");
+function sliceR(rs,a,b){const out=[];let p=0;for(const r of rs){const s=p,e=p+r.t.length;p=e;const x=Math.max(a,s),y=Math.min(b,e);if(x<y){const n={...r,t:r.t.slice(x-s,y-s)},l=out.at(-1);
+  if(l&&["b","u","i","sup","sub"].every(k=>l[k]===n[k]))l.t+=n.t;else out.push(n)}}return out}
+function trimR(rs){rs=rs.map(r=>({...r,t:r.t.replace(/\t/g," ")}));while(rs.length&&!rs[0].t.trim())rs.shift();while(rs.length&&!rs.at(-1).t.trim())rs.pop();
+ if(rs.length){rs[0].t=rs[0].t.replace(/^\s+/,"");rs.at(-1).t=rs.at(-1).t.replace(/\s+$/,"")}return rs}
+function htmlR(rs,drop){return trimR(rs).map(r=>{let h=esc(r.t).replace(/ {2,}/g," ");if(r.sup)h=`<sup>${h}</sup>`;if(r.sub)h=`<sub>${h}</sub>`;if(r.i)h=`<i>${h}</i>`;if(r.u&&!drop.includes("u"))h=`<u>${h}</u>`;if(r.b&&!drop.includes("b"))h=`<b>${h}</b>`;return h}).join("")}
+function detectLv(t){const m=t.match(/[\[\(]\s*(NB|TH|VDC|VD)\s*[\]\)]/i);if(m)return{lv:LK.indexOf(m[1].toUpperCase()),rest:t.replace(m[0],"")};
+ const n=t.toLowerCase();return/vận dụng cao/.test(n)?{lv:3}:/vận dụng/.test(n)?{lv:2}:/thông hiểu/.test(n)?{lv:1}:/nhận biết/.test(n)?{lv:0}:{lv:null}}
+const QSTART=/^\s*(?:(?:question|câu|cau|q)\s*\d+\s*[:.)\-–]?|\d+\s*[.)])\s*/i;
+const TAG=/[\[\(]\s*(NB|TH|VDC|VD)\s*[\]\)]/i;
+const PART=/^\s*(?:part|phần|phan|section)\s+[A-Z0-9IVX]+\b/i;
+const ANSL=/^\s*(?:answer|key|đáp án|dap an|đ\/a|ans)\s*[:\-–]\s*/i;
+
+function parseParas(paras,mode,defLv){
+ const out=[],drop=mode==="u"?["u"]:mode==="bu"?["b","u"]:["b"];
+ const isM=r=>mode==="u"?r.u:mode==="bu"?(r.b||r.u):r.b;
+ let cur=null,part={lv:null,ins:"",pas:[],gather:false,afterHead:false};
+ const flush=()=>{if(!cur)return;const c=cur;cur=null;const w=[];
+  const o={id:uid()+out.length,lv:c.lv??defLv,lvAuto:c.lv==null,ins:c.ins,pas:c.pas,q:htmlR(c.q,[]),warn:w};
+  if(c.opts.length>=2){o.type="mc";o.opts=c.opts.map(x=>htmlR(x.rs,drop));
+   let ans=c.ans;if(ans==null){const m=c.opts.map((x,i)=>{let tot=0,k=0;for(const r of x.rs){const n=r.t.replace(/\s/g,"").length;tot+=n;if(isM(r))k+=n}return tot&&k/tot>0.5?i:-1}).filter(i=>i>=0);
+    if(m.length===0){ans=-1;w.push("Không thấy đáp án in đậm — hãy bấm chọn đáp án đúng.")}
+    else if(m.length===c.opts.length){ans=-1;w.push("Tất cả lựa chọn đều in đậm — hãy bấm chọn đáp án đúng.")}
+    else{ans=m[0];if(m.length>1)w.push("Có nhiều đáp án in đậm ("+m.map(i=>AB[i]).join(", ")+") — đang lấy "+AB[m[0]]+".")}}
+   o.ans=ans}
+  else{o.type="es";o.key=c.key.join(" ").trim();if(c.opts.length===1)w.push("Chỉ có 1 lựa chọn — đã chuyển thành câu tự luận.");if(!o.key)w.push("Chưa có đáp án mẫu (dòng \"Answer: ...\").")}
+  if(!plainT(o.q))w.push("Câu hỏi trống.");o.qt=plainT(o.q).toLowerCase();out.push(o)};
+ for(const p of paras){
+  const rs=p.runs,t=plainR(rs).trim();if(!t)continue;
+  // 1. dòng đáp án
+  if(cur&&ANSL.test(t)){const v=t.replace(ANSL,"").trim(),m=v.match(/^([A-F])\b/i);
+   if(cur.opts.length&&m){cur.ans=AB.indexOf(m[1].toUpperCase())}else cur.key.push(v);continue}
+  // 2. tiêu đề phần
+  if(PART.test(t)&&!QSTART.test(t)){flush();const d=detectLv(t);part={lv:d.lv,ins:"",pas:[],gather:false,afterHead:true};continue}
+  // 3. bắt đầu câu hỏi
+  const qm=t.match(QSTART);
+  if(qm){flush();
+   const full=plainR(rs),st=full.search(/\S/),off=st+full.slice(st).match(QSTART)[0].length;
+   let q=sliceR(rs,off,full.length),lv=null;const s=plainR(q),m=s.match(TAG);
+   if(m){lv=LK.indexOf(m[1].toUpperCase());q=[...sliceR(q,0,m.index),...sliceR(q,m.index+m[0].length,s.length)]}
+   cur={q,opts:[],ans:null,key:[],lv:lv??part.lv,ins:part.ins,pas:part.pas.join("<br>")};part.gather=false;part.afterHead=false;continue}
+  // 4. lựa chọn A. B. C. D. (hoặc danh sách tự đánh số của Word)
+  if(cur){const isLab=/^\s*[A-F]\s*[.)]/.test(t),full=plainR(rs);
+   if(isLab){const re=/(^|\s)([A-F])\s*[.)]\s*/g,hits=[];let m,exp=cur.opts.length;
+    while((m=re.exec(full))){if(m[2]===AB[exp]&&(hits.length||full.slice(0,m.index+m[1].length).trim()==="")){hits.push({s:m.index+m[1].length,e:m.index+m[0].length});exp++}}
+    if(hits.length){hits.forEach((h,k)=>cur.opts.push({rs:sliceR(rs,h.e,k+1<hits.length?hits[k+1].s:full.length)}));continue}}
+   else if(p.li&&cur.opts.length<6){cur.opts.push({rs});continue}}
+  // 5. phần còn lại
+  if(cur&&cur.opts.length===0&&!cur.key.length){cur.q=[...cur.q,{t:"\n",b:false,u:false,i:false,sup:false,sub:false},...rs];continue}
+  if(part.afterHead&&!part.ins&&!cur){part.ins=htmlR(rs,[]);continue}
+  if(part.afterHead&&!cur){part.pas.push(htmlR(rs,[]));continue}
+  if(cur&&(cur.opts.length||cur.key.length)){flush();if(!part.gather){part.pas=[];part.gather=true}part.pas.push(htmlR(rs,[]));continue}
+  if(part.gather){part.pas.push(htmlR(rs,[]))}}
+ flush();return out}
+
+function parseBankText(t,defLv){const out=[];
+ t.split(/\r?\n/).forEach(l=>{if(!l.trim()||l.startsWith("#"))return;
+  const c=l.split(/\||\t/).map(x=>x.trim()),lv=parseInt(c[0])-1,es=/^(tl|tự luận|es)/i.test(c[1]||"");
+  if(!(lv>=0&&lv<4)||!c[2])return;const base={id:uid()+out.length,lv,q:esc(c[2]),warn:[],qt:c[2].toLowerCase()};
+  if(es)out.push({...base,type:"es",key:c[7]||""});
+  else{const o=c.slice(3,7),a=AB.indexOf((c[7]||"").toUpperCase());if(o.length<4||o.some(x=>!x))return;out.push({...base,type:"mc",opts:o.map(esc),ans:a,warn:a<0?["Chưa có đáp án đúng."]:[]})}});
+ return out}
+const fileText=f=>new Promise((ok,no)=>{const rd=new FileReader();rd.onerror=()=>no(new Error("Không đọc được file"));
+ if(/\.xlsx?$/i.test(f.name)){if(!window.XLSX)return no(new Error("Chưa tải được thư viện Excel (cần Internet)."));rd.onload=e=>{const wb=XLSX.read(e.target.result,{type:"array"});ok(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,raw:false}).map(r=>r.join("|")).join("\n"))};rd.readAsArrayBuffer(f)}
+ else{rd.onload=e=>ok(e.target.result);rd.readAsText(f)}});
+
+const impDocx=safe(async el=>{const f=el.files[0];if(!f)return;
+ if(!/\.docx$/i.test(f.name))return toast("Hãy chọn file Word đuôi .docx",true);
+ const items=parseParas(await readDocx(f),$("#mk").value,+$("#dlv").value);
+ el.value="";if(!items.length)return toast("Không tìm thấy câu hỏi nào. Câu hỏi cần bắt đầu bằng \"Question 1:\", \"Câu 1.\" hoặc \"1.\"",true);
+ pvOpen(items,f.name)});
+const impText=safe(async()=>{const items=parseBankText($("#imp").value);if(!items.length)return toast("Không đọc được câu hỏi nào. Kiểm tra lại định dạng.",true);pvOpen(items,"văn bản")});
+const impTextFile=safe(async el=>{const f=el.files[0];if(f)$("#imp").value=await fileText(f)});
+function pvOpen(items,name){const have=new Set(S.bank.map(q=>q.qt||plainT(q.q).toLowerCase()));
+ items.forEach(x=>{x.skip=have.has(x.qt);if(x.skip)x.warn.push("Trùng với câu đã có trong ngân hàng — mặc định bỏ qua.")});S.pv={items,name};S.tab="bank";render();setTimeout(()=>$("#pv")?.scrollIntoView({behavior:"smooth"}),50)}
+const pvLv=(i,v)=>{S.pv.items[i].lv=+v;S.pv.items[i].lvAuto=false};
+const pvAll=()=>{const v=+$("#pvall").value;S.pv.items.forEach(x=>{x.lv=v;x.lvAuto=false});render()};
+const pvTog=i=>{S.pv.items[i].skip=!S.pv.items[i].skip;pvCount()};
+const pvAns=(i,j)=>{S.pv.items[i].ans=j;S.pv.items[i].warn=S.pv.items[i].warn.filter(w=>!/đáp án|in đậm/.test(w));render()};
+const pvKey=(i,v)=>S.pv.items[i].key=v;
+const pvCount=()=>{const n=S.pv.items.filter(x=>!x.skip&&!(x.type==="mc"&&x.ans<0)).length,e=$("#pvn");if(e)e.textContent=n};
+const pvAdd=safe(async()=>{const ok=S.pv.items.filter(x=>!x.skip&&!(x.type==="mc"&&x.ans<0));
+ if(!ok.length)return toast("Chưa có câu hợp lệ để thêm (kiểm tra đáp án đúng).",true);
+ const base=Date.now();ok.forEach((x,i)=>{const{warn,lvAuto,skip,...q}=x;q.n=base+i;S.bank.push(q)});
+ const miss=S.pv.items.length-ok.length;S.pv=null;await saveBank();render();toast(`Đã thêm ${ok.length} câu vào ngân hàng`+(miss?` (bỏ qua ${miss})`:""))});
+
+/* ===== NGÂN HÀNG: GIAO DIỆN ===== */
+const lvSel=(v,on,id)=>`<select ${id?`id="${id}"`:""} class="border border-slate-300 rounded-md px-2 py-1 text-xs bg-white" onchange="${on}">${LV.map((n,i)=>`<option value="${i}" ${i==v?"selected":""}>${n}</option>`).join("")}</select>`;
+const optList=(q,click)=>q.type==="mc"?`<div class="grid sm:grid-cols-2 gap-1.5 mt-2">${q.opts.map((o,j)=>`<button type="button" onclick="${click(j)}" class="text-left text-sm border rounded-lg px-3 py-1.5 qh ${j===q.ans?"border-teal-600 bg-teal-50 text-teal-900 font-semibold":"border-slate-200 hover:bg-slate-50"}"><b>${AB[j]}.</b> ${o} ${j===q.ans?"✔":""}</button>`).join("")}</div>`:"";
+function vPreview(){const p=S.pv,its=p.items,w=its.filter(x=>x.warn.length).length;
+ return `<div id="pv" class="${CARD} p-4 border-teal-300 ring-2 ring-teal-100"><div class="flex flex-wrap justify-between items-center gap-2 mb-3"><div><h2 class="font-bold">Xem trước: ${its.length} câu từ ${esc(p.name)}</h2>
+  <p class="text-xs text-slate-500">${w?`<span class="text-amber-700 font-semibold">${w} câu có cảnh báo</span> — `:""}Kiểm tra mức độ và đáp án đúng (bấm vào lựa chọn để đổi) rồi bấm "Thêm vào ngân hàng".</p></div>
+  <div class="flex flex-wrap gap-2 items-center"><span class="text-xs text-slate-500">Gán mức cho tất cả:</span>${lvSel(0,"","pvall")}<button onclick="pvAll()" class="${B2} !py-1">Áp dụng</button>
+  <button onclick="S.pv=null;render()" class="${B2}">Hủy</button><button onclick="pvAdd()" class="${B1} !py-2 text-sm">Thêm <span id="pvn">${its.filter(x=>!x.skip&&!(x.type==="mc"&&x.ans<0)).length}</span> câu vào ngân hàng</button></div></div>
+  <div class="space-y-2 max-h-[34rem] overflow-auto pr-1">${its.map((x,i)=>`<div class="border rounded-lg p-3 ${x.warn.length?"border-amber-300 bg-amber-50":"border-slate-200"}">
+   <div class="flex flex-wrap items-center gap-2 mb-1 text-xs"><input type="checkbox" class="accent-teal-700" ${x.skip?"":"checked"} onchange="pvTog(${i})"><b>#${i+1}</b><span class="px-1.5 py-0.5 rounded bg-slate-200">${x.type==="mc"?"Trắc nghiệm":"Tự luận"}</span>${lvSel(x.lv,`pvLv(${i},this.value)`)}${x.lvAuto?"":""}</div>
+   ${x.ins?`<p class="text-xs italic text-slate-500 qh">${x.ins}</p>`:""}<p class="text-sm qh">${x.q}</p>
+   ${x.type==="mc"?optList(x,j=>`pvAns(${i},${j})`):`<input class="${inp} mt-2 text-sm" placeholder="Đáp án mẫu" value="${esc(x.key)}" oninput="pvKey(${i},this.value)">`}
+   ${x.warn.map(m=>`<p class="text-xs text-amber-800 mt-1">⚠ ${esc(m)}</p>`).join("")}</div>`).join("")}</div></div>`}
+
+function tBank(){const b=S.bank,f=S.flt;
+ const cnt=LV.map((n,l)=>`<span class="inline-block mr-3"><b>${n}:</b> ${b.filter(q=>q.lv==l&&q.type=="mc").length} TN / ${b.filter(q=>q.lv==l&&q.type=="es").length} TL</span>`).join("");
+ const L=b.filter(q=>(f.lv=="all"||q.lv==f.lv)&&(f.ty=="all"||q.type==f.ty)&&(!f.q||plainT(q.q).toLowerCase().includes(f.q.toLowerCase())));
+ return `<div class="space-y-4"><div class="${CARD} p-4"><h2 class="font-bold mb-1">Nạp đề từ file Word (.docx)</h2>
+ <p class="text-xs text-slate-500 mb-3">Mỗi câu bắt đầu bằng <code>Question 1:</code> / <code>Câu 1.</code>; các lựa chọn <code>A.</code> <code>B.</code> <code>C.</code> <code>D.</code> mỗi dòng một lựa chọn; <b>đáp án đúng được tô đậm</b>. Câu không có lựa chọn được coi là tự luận (dòng sau <code>Answer: ...</code> là đáp án mẫu). Gắn <code>[NB]</code> <code>[TH]</code> <code>[VD]</code> <code>[VDC]</code> vào câu hoặc vào dòng tiêu đề <code>PART ...</code> để tự phân mức độ.</p>
+ <div class="flex flex-wrap gap-3 items-end"><label class="text-xs text-slate-600">Mức độ mặc định<br>${lvSel(0,"","dlv")}</label>
+  <label class="text-xs text-slate-600">Dấu hiệu đáp án đúng<br><select id="mk" class="border border-slate-300 rounded-md px-2 py-1 text-xs bg-white"><option value="b">Chữ in đậm</option><option value="u">Chữ gạch chân</option><option value="bu">In đậm hoặc gạch chân</option></select></label>
+  <label class="${B1} cursor-pointer text-sm">Chọn file .docx<input type="file" accept=".docx" class="hidden" onchange="impDocx(this)"></label></div>
+ <details class="mt-4"><summary class="text-sm text-teal-800 cursor-pointer font-medium">Nhập bằng văn bản / Excel / CSV</summary>
+  <p class="text-xs text-slate-500 my-2">Mỗi dòng một câu, ngăn cách bằng <code>|</code>. Mức: 1 Nhận biết, 2 Thông hiểu, 3 Vận dụng, 4 Vận dụng cao.<br><code>Mức|TN|Câu hỏi|A|B|C|D|Đáp án (A-D)</code> &nbsp; hoặc &nbsp; <code>Mức|TL|Câu hỏi|||||Đáp án mẫu</code></p>
+  <textarea id="imp" rows="5" class="${inp} font-mono text-xs"></textarea><div class="flex flex-wrap gap-2 mt-2"><button onclick="impText()" class="${B1} !py-2 text-sm">Xem trước</button><label class="${B2} cursor-pointer">Tải file .txt/.csv/.xlsx<input type="file" accept=".txt,.csv,.xlsx" class="hidden" onchange="impTextFile(this)"></label></div></details></div>
+ ${S.pv?vPreview():""}
+ <div class="${CARD} p-4"><div class="flex flex-wrap gap-2 justify-between items-center mb-2"><h2 class="font-bold">Ngân hàng hiện có: ${b.length} câu</h2>
+  <div class="flex flex-wrap gap-2 text-sm"><button onclick="backup()" class="${B2}">Sao lưu (.json)</button><label class="${B2} cursor-pointer">Khôi phục<input type="file" accept=".json" class="hidden" onchange="restore(this)"></label>${b.length?`<button onclick="clearBank()" class="${B2} text-red-700">Xóa toàn bộ</button>`:""}</div></div>
+  <p class="text-xs text-slate-500 mb-3">${cnt}</p>
+  <div class="flex flex-wrap gap-2 mb-3"><select class="border border-slate-300 rounded-md px-2 py-1.5 text-sm bg-white" onchange="S.flt.lv=this.value;render()"><option value="all">Mọi mức độ</option>${LV.map((n,i)=>`<option value="${i}" ${f.lv==i?"selected":""}>${n}</option>`).join("")}</select>
+   <select class="border border-slate-300 rounded-md px-2 py-1.5 text-sm bg-white" onchange="S.flt.ty=this.value;render()"><option value="all">Mọi loại</option><option value="mc" ${f.ty=="mc"?"selected":""}>Trắc nghiệm</option><option value="es" ${f.ty=="es"?"selected":""}>Tự luận</option></select>
+   <input value="${esc(f.q)}" placeholder="Tìm câu hỏi..." class="border border-slate-300 rounded-md px-2 py-1.5 text-sm flex-1 min-w-[10rem]" onchange="S.flt.q=this.value;render()"></div>
+  <div class="max-h-[32rem] overflow-auto divide-y">${L.map(q=>`<details class="py-2 text-sm"><summary class="cursor-pointer flex gap-2 items-start justify-between"><span class="min-w-0"><b class="text-teal-800">[${q.type=="mc"?"TN":"TL"}]</b> ${esc(plainT(q.q).slice(0,140))}</span><span class="shrink-0 text-xs text-slate-500">${LV[q.lv]}${q.type=="mc"?" · "+AB[q.ans]:""}</span></summary>
+   <div class="mt-2 pl-1"><p class="qh">${q.q}</p>${q.type=="mc"?optList(q,j=>`setAns('${q.id}',${j})`):`<p class="text-teal-800 mt-1">Đáp án mẫu: ${esc(q.key||"—")}</p>`}
+   <div class="flex gap-3 items-center mt-2">${lvSel(q.lv,`setLv('${q.id}',this.value)`)}<button onclick="delQ('${q.id}')" class="text-red-600 text-xs">Xóa câu này</button></div></div></details>`).join("")||"<p class='text-slate-400 py-4 text-center'>Không có câu hỏi phù hợp.</p>"}</div></div></div>`}
+const setLv=(id,v)=>{S.bank.find(q=>q.id===id).lv=+v;sv()};
+const setAns=(id,j)=>{S.bank.find(q=>q.id===id).ans=j;render();sv()};
+const delQ=id=>{S.bank=S.bank.filter(q=>q.id!==id);render();sv()};
+const clearBank=()=>{if(confirm("Xóa toàn bộ ngân hàng câu hỏi?")){S.bank=[];render();sv()}};
+function dl(name,blob){const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000)}
+const backup=()=>dl("ngan-hang-cau-hoi.json",new Blob([JSON.stringify({v:2,bank:S.bank,matrix:S.cfg.matrix,minutes:S.cfg.minutes})],{type:"application/json"}));
+const restore=safe(async el=>{const f=el.files[0];if(!f)return;const d=JSON.parse(await fileText(f)),have=new Set(S.bank.map(q=>q.id));
+ const add=arr(d.bank).filter(q=>q?.id&&!have.has(q.id));S.bank.push(...add);await saveBank();render();toast(`Đã khôi phục ${add.length} câu`)});
+
+/* ===== MA TRẬN & CÀI ĐẶT ===== */
+function tSetup(){const c=S.cfg,b=S.bank,tot=cfgNum(c);
+ return `<div class="grid lg:grid-cols-2 gap-4"><div class="${CARD} p-4"><h2 class="font-bold mb-3">Thời gian & ma trận đề</h2>
+ <label class="block text-sm mb-3">Tên bài thi<input id="ttl" class="${inp} mt-1" value="${esc(c.title)}"></label>
+ <div class="flex flex-wrap gap-4 mb-4 items-center"><label class="text-sm">Thời gian làm bài (phút)<input id="mins" type="number" min="1" value="${c.minutes}" class="${inp} w-28 mt-1"></label>
+ <div class="space-y-1 text-sm"><label class="flex gap-2 items-center"><input id="reg" type="checkbox" class="accent-teal-700" ${c.allowReg?"checked":""}> Cho phép học sinh tự đăng ký</label>
+ <label class="flex gap-2 items-center"><input id="shs" type="checkbox" class="accent-teal-700" ${c.showScore?"checked":""}> Cho học sinh xem điểm trắc nghiệm ngay</label></div></div>
+ <table class="w-full text-sm"><thead><tr class="text-left text-slate-500"><th class="py-2">Mức độ</th><th>Số câu TN</th><th>Số câu TL</th></tr></thead><tbody>
+ ${LV.map((n,l)=>`<tr class="border-t"><td class="py-2 font-medium">${n}</td>
+ <td><input id="mc${l}" type="number" min="0" value="${mx("mc",l)}" class="${inp} !w-20 !py-1"> <span class="text-xs text-slate-400">/ ${b.filter(q=>q.lv==l&&q.type=="mc").length}</span></td>
+ <td><input id="es${l}" type="number" min="0" value="${mx("es",l)}" class="${inp} !w-20 !py-1"> <span class="text-xs text-slate-400">/ ${b.filter(q=>q.lv==l&&q.type=="es").length}</span></td></tr>`).join("")}</tbody></table>
+ <p class="text-xs text-slate-500 mt-3">Số sau dấu "/" là số câu có sẵn trong ngân hàng. Mỗi học sinh nhận bộ câu bốc ngẫu nhiên, xáo thứ tự câu và đáp án, có mã đề riêng. Tổng hiện tại: <b>${tot}</b> câu. Điểm trắc nghiệm tính thang 10.</p>
+ <p class="text-xs text-amber-800 bg-amber-50 rounded-md p-2 mt-2">Bật "cho học sinh xem điểm ngay" sẽ đưa đáp án lên vùng công khai của cơ sở dữ liệu — chỉ nên bật khi không lo lộ đề.</p>
+ <div class="flex flex-wrap gap-2 mt-3"><button onclick="saveSetup()" class="${B1}">Lưu cài đặt</button><button onclick="useAll()" class="${B2}">Dùng hết ngân hàng</button></div></div>
+ <div class="${CARD} p-4 self-start"><h2 class="font-bold mb-3">Đổi mật khẩu quản trị</h2><input id="np" type="password" class="${inp} mb-2" placeholder="Mật khẩu mới (≥ 4 ký tự)" autocomplete="new-password"><button onclick="chgPw()" class="${B2}">Đổi mật khẩu</button>
+ <p class="text-xs text-slate-500 mt-3">Quên mật khẩu quản trị: xem mục "Khôi phục" trong file HƯỚNG DẪN.</p></div></div>`}
+const saveSetup=safe(async()=>{const g=i=>Math.max(0,Math.floor(+$(i).value||0));
+ Object.assign(S.cfg,{title:$("#ttl").value.trim()||"Bài kiểm tra Tiếng Anh",minutes:Math.max(1,g("#mins")),allowReg:$("#reg").checked,showScore:$("#shs").checked,matrix:{mc:[0,1,2,3].map(l=>g("#mc"+l)),es:[0,1,2,3].map(l=>g("#es"+l))}});
+ await saveCfg();render();toast("Đã lưu cài đặt")});
+const useAll=()=>{S.cfg.matrix={mc:[0,1,2,3].map(l=>S.bank.filter(q=>q.lv==l&&q.type=="mc").length),es:[0,1,2,3].map(l=>S.bank.filter(q=>q.lv==l&&q.type=="es").length)};render()};
+const chgPw=safe(async()=>{const p=$("#np").value;if(p.length<4)return toast("Mật khẩu tối thiểu 4 ký tự",true);
+ const K2=await sha("teacher|"+p);if(K2===S.K)return toast("Mật khẩu mới trùng mật khẩu cũ",true);await DB.set(`sec/${K2}/created`,Date.now());await DB.set(`sec/${K2}/keys`,S.bank.length?S.keys:null);await DB.set(`sec/${S.K}`,null);S.K=K2;$("#np").value="";toast("Đã đổi mật khẩu")});
+
+/* ===== TÀI KHOẢN HỌC SINH ===== */
+function tStu(){const s=Object.entries(S.students);
+ return `<div class="grid md:grid-cols-2 gap-4"><div class="${CARD} p-4"><h2 class="font-bold mb-1">Nạp danh sách học sinh</h2>
+ <p class="text-xs text-slate-500 mb-2">Mỗi dòng: <code>CCCD|Họ tên|Mật khẩu</code> (hoặc 3 cột Excel). Bỏ trống mật khẩu để học sinh tự đặt ở lần đăng nhập đầu. Với Excel, hãy định dạng cột CCCD là Text để không mất số 0 đầu.</p>
+ <textarea id="imp2" rows="8" class="${inp} font-mono text-xs"></textarea><div class="flex gap-2 mt-2"><button onclick="impStu()" class="${B1}">Nạp danh sách</button><label class="${B2} cursor-pointer">Tải file .csv/.xlsx/.txt<input type="file" accept=".txt,.csv,.xlsx" class="hidden" onchange="stuFile(this)"></label></div></div>
+ <div class="${CARD} p-4"><h2 class="font-bold mb-2">${s.length} tài khoản</h2><div class="max-h-[28rem] overflow-auto divide-y text-sm">
+ ${s.map(([id,a])=>`<div class="py-2 flex justify-between gap-2"><span class="min-w-0">${esc(a.name)} <span class="text-slate-400">· ${esc(id)}</span> ${a.pw?"":'<i class="text-xs text-amber-700">chờ đặt mật khẩu</i>'}</span><span class="shrink-0 text-xs"><button onclick="resetStu('${id}')" class="text-teal-800 mr-2">Đặt lại MK</button><button onclick="delStu('${id}')" class="text-red-600">Xóa</button></span></div>`).join("")||"<p class='text-slate-400'>Chưa có tài khoản.</p>"}</div></div></div>`}
+const stuFile=safe(async el=>{if(el.files[0])$("#imp2").value=await fileText(el.files[0])});
+const impStu=safe(async()=>{let n=0;for(const l of $("#imp2").value.split(/\r?\n/)){const[c,nm,p]=l.split(/\||\t|,|;/).map(x=>x?.trim());
+ if(/(cccd|định danh|mã)/i.test(c||"")&&/(tên|name)/i.test(nm||""))continue;const id=norm(c);if(id&&nm){await DB.set("students/"+id,{name:nm,pw:p?await pwHash(id,p):""});n++}}
+ await loadRes(true);toast(`Đã nạp ${n} học sinh`)});
+const delStu=safe(async id=>{if(!confirm("Xóa tài khoản này?"))return;await DB.set("students/"+id,null);await loadRes(true)});
+const resetStu=safe(async id=>{await DB.patch("students/"+id,{pw:""});await loadRes(true);toast("Học sinh sẽ đặt mật khẩu mới ở lần đăng nhập tới")});
+
+/* ===== KẾT QUẢ THI ===== */
+const stat=r=>r.status==="violation"?{t:"Bị khóa do gian lận",c:"bg-red-100 text-red-800"}:r.status==="done"?{t:"Hoàn thành"+(/Hết giờ/.test(r.reason||"")?" (hết giờ)":""),c:"bg-teal-100 text-teal-900"}:{t:(Date.now()-(r.hb||r.start)>60000?"Đang làm (mất kết nối?)":"Đang làm bài"),c:"bg-amber-100 text-amber-900"};
+const stText=r=>{const s=stat(r).t;return r.status==="violation"?`${s} (vi phạm lúc ${fmt(r.violationAt||r.end)})`:s};
+function filtRes(){const f=S.rf;return S.rlist.filter(r=>(f.st==="all"||r.status===f.st)&&(!f.q||(r.name+" "+r.cccd).toLowerCase().includes(f.q.toLowerCase())))}
+function resRows(){const L=filtRes();
+ return L.map(r=>{const s=stat(r);return `<tr class="border-b align-top"><td class="py-2 pr-3 font-medium">${esc(r.name)}</td><td class="pr-3">${esc(r.cccd)}</td><td class="pr-3 font-mono">${esc(r.code)}</td>
+ <td class="pr-3 font-semibold">${r.score??"-"}${r.tot!=null&&r.status!=="doing"?`<span class="block text-xs font-normal text-slate-400">${r.ok}/${r.tot} câu</span>`:""}</td>
+ <td class="pr-3">${r.tes?(r.pend?`<span class="text-xs text-amber-700">chưa chấm ${r.pend}</span>`:r.esS):"—"}</td><td class="pr-3 font-semibold">${r.total??"-"}</td>
+ <td class="pr-3"><span class="px-2 py-0.5 rounded text-xs ${s.c}">${s.t}</span>${r.status==="violation"?`<span class="block text-xs text-red-700 mt-1">Lúc ${fmt(r.violationAt||r.end)}<br>${esc(r.reason||"")}</span>`:""}</td><td class="pr-3">${dur(r)||"-"}</td>
+ <td class="whitespace-nowrap"><button onclick="detail('${r.id}')" class="text-teal-800 mr-2">Chi tiết</button><button onclick="retake('${r.id}')" class="text-red-600">Cho thi lại</button></td></tr>`}).join("")||`<tr><td colspan="9" class="py-8 text-center text-slate-400">Chưa có bài làm phù hợp.</td></tr>`}
+function resStats(){const L=S.rlist,d=L.filter(r=>r.status==="done"),sc=d.map(r=>r.total).filter(x=>x!=null);
+ const box=(n,l,c)=>`<div class="${CARD} p-3 text-center"><div class="text-2xl font-bold ${c||""}">${n}</div><div class="text-xs text-slate-500">${l}</div></div>`;
+ return box(L.length,"Tổng bài")+box(L.filter(r=>r.status==="doing").length,"Đang làm","text-amber-600")+box(d.length,"Hoàn thành","text-teal-700")+box(L.filter(r=>r.status==="violation").length,"Bị khóa","text-red-600")+box(sc.length?(sc.reduce((a,b)=>a+b,0)/sc.length).toFixed(2):"—","Điểm TB")}
+function updRes(){const a=$("#rtbody");if(a)a.innerHTML=resRows();const b=$("#rstats");if(b)b.innerHTML=resStats()}
+function tRes(){
+ return `<div class="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4" id="rstats">${resStats()}</div><div class="${CARD} p-4"><div class="flex flex-wrap gap-2 justify-between mb-3"><div class="flex flex-wrap gap-2">
+ <input value="${esc(S.rf.q)}" oninput="S.rf.q=this.value;updRes()" placeholder="Tìm tên / CCCD..." class="border border-slate-300 rounded-md px-2 py-1.5 text-sm">
+ <select class="border border-slate-300 rounded-md px-2 py-1.5 text-sm bg-white" onchange="S.rf.st=this.value;updRes()"><option value="all">Mọi trạng thái</option><option value="doing" ${S.rf.st=="doing"?"selected":""}>Đang làm</option><option value="done" ${S.rf.st=="done"?"selected":""}>Hoàn thành</option><option value="violation" ${S.rf.st=="violation"?"selected":""}>Bị khóa</option></select></div>
+ <div class="flex gap-2"><button onclick="loadRes(false)" class="${B2}">Làm mới</button><button onclick="xport('xlsx')" class="${B1} !py-2 text-sm">Xuất Excel (.xlsx)</button><button onclick="xport('csv')" class="${B2}">Xuất CSV</button></div></div>
+ <p class="text-xs text-slate-400 mb-2">Tự động làm mới mỗi 10 giây.</p>
+ <div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-left text-slate-500 border-b"><th class="py-2 pr-3">Họ tên</th><th class="pr-3">CCCD</th><th class="pr-3">Mã đề</th><th class="pr-3">Điểm TN</th><th class="pr-3">Tự luận</th><th class="pr-3">Tổng</th><th class="pr-3">Trạng thái</th><th class="pr-3">Thời gian làm</th><th></th></tr></thead><tbody id="rtbody">${resRows()}</tbody></table></div></div>`}
+setInterval(()=>{if(S.view==="dash"&&S.tab==="results"&&!$("#modal").innerHTML&&!document.hidden)loadRes(false).catch(()=>{})},10000);
+const retake=safe(async id=>{if(!confirm("Xóa bài làm này để học sinh được thi lại?"))return;await DB.set("results/"+id,null);await loadRes(true)});
+
+function detail(id){const r=S.rlist.find(x=>x.id==id),a=r.answers||{},qs=arr(r.qs),dm=$("#dm"),sc=dm?dm.scrollTop:0;
+ modal(`<div class="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-3"><div id="dm" class="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] overflow-auto p-5">
+ <div class="flex justify-between gap-3 mb-1"><h3 class="font-bold">${esc(r.name)} · Mã đề ${esc(r.code)}</h3><button onclick="modal('');updRes()" class="text-slate-500">Đóng ✕</button></div>
+ <p class="text-sm text-slate-500 mb-1">${esc(stText(r))}${r.reason?" — "+esc(r.reason):""}</p>
+ <p class="text-sm mb-3">Điểm TN: <b>${r.score??"-"}</b> (${r.ok??0}/${r.tot??0}) ${r.tes?`· Tự luận: <b>${r.esS}</b>/${r.tes} · Tổng: <b>${r.total}</b>/10`:""}</p>
+ ${qs.map((q,i)=>{const om=arr(q.om),sel=a[i],k=S.keys[q.id],ci=q.type==="mc"?om.indexOf(k?.ans):-1;
+  return `<div class="border-t py-3 text-sm"><p class="font-semibold mb-1">Câu ${i+1}. <span class="font-normal qh">${q.q}</span></p>${q.type=="mc"?arr(q.opts).map((o,j)=>`<p class="qh ${j==ci?"text-teal-800 font-semibold":sel===j?"text-red-700":""}">${AB[j]}. ${o} ${j==ci?"✔":sel===j?"✘":""}${j==ci&&sel===j?" (HS chọn)":sel===j?" (HS chọn)":""}</p>`).join("")+(answered(sel)?"":'<p class="text-slate-400">(bỏ trống)</p>')
+  :`<p class="bg-slate-50 rounded p-2 whitespace-pre-wrap">HS trả lời: ${esc(a[i]||"(bỏ trống)")}</p><p class="text-teal-800 mt-1">Đáp án mẫu: ${esc(k?.key||"—")}${answered(a[i])&&k?.key&&plainT(a[i]).toLowerCase().replace(/[^\p{L}\p{N}]/gu,"")===plainT(k.key).toLowerCase().replace(/[^\p{L}\p{N}]/gu,"")?' <b class="text-teal-700">(khớp đáp án mẫu)</b>':""}</p>
+  <div class="flex gap-1.5 mt-2 items-center"><span class="text-xs text-slate-500">Chấm:</span>${[[1,"Đúng"],[.5,"½"],[0,"Sai"]].map(([v,n])=>`<button onclick="gradeEs('${r.id}',${i},${v})" class="px-3 py-1 rounded-md text-xs border ${r.esg?.[i]==v&&r.esg?.[i]!=null?"bg-teal-700 text-white border-teal-700":"bg-white border-slate-300"}">${n}</button>`).join("")}</div>`}</div>`}).join("")}</div></div>`);
+ if(sc)$("#dm").scrollTop=sc}
+const gradeEs=safe(async(id,i,v)=>{const r=S.rlist.find(x=>x.id==id);r.esg=r.esg||{};r.esg[i]=v;grade(r,S.keys);await DB.patch("results/"+id,{esg:r.esg});detail(id)});
+
+/* ===== XUẤT ĐIỂM ===== */
+function xport(t){
+ const rows=S.rlist.map((r,i)=>({"STT":i+1,"Họ tên":r.name,"CCCD / Mã định danh":String(r.cccd),"Mã đề":r.code,"Điểm trắc nghiệm":r.score??"","Số câu đúng":r.tot!=null&&r.status!=="doing"?`${r.ok}/${r.tot}`:"","Điểm tự luận (đã chấm)":r.tes?r.esS:"","Tổng điểm (thang 10)":r.total??"","Trạng thái":stText(r),"Lý do / ghi chú":r.reason||"","Giờ vi phạm":r.status=="violation"?fmt(r.violationAt||r.end):"","Bắt đầu":fmt(r.start),"Nộp bài lúc":fmt(r.end),"Thời gian làm bài thực tế":dur(r)}));
+ const ws=XLSX.utils.json_to_sheet(rows);
+ if(t==="csv")return dl("diem-thi.csv",new Blob(["﻿"+XLSX.utils.sheet_to_csv(ws)],{type:"text/csv;charset=utf-8"}));
+ const det=[];S.rlist.forEach((r,i)=>arr(r.qs).forEach((q,k)=>{const sel=r.answers?.[k],om=arr(q.om),ci=q.type==="mc"?om.indexOf(S.keys[q.id]?.ans):-1;
+  det.push({"STT":i+1,"Họ tên":r.name,"CCCD / Mã định danh":String(r.cccd),"Mã đề":r.code,"Câu số":k+1,"Loại":q.type=="mc"?"Trắc nghiệm":"Tự luận","Mức độ":LV[q.lv]||"","HS chọn / trả lời":q.type=="mc"?(answered(sel)?AB[sel]:""):(sel||""),"Đáp án đúng":q.type=="mc"?AB[ci]||"":(S.keys[q.id]?.key||""),"Kết quả":q.type=="mc"?(r.status==="violation"?"0 (vi phạm)":answered(sel)?(sel===ci?"Đúng":"Sai"):"Bỏ trống"):(r.esg?.[k]!=null?r.esg[k]:"chưa chấm")})}));
+ const wb=XLSX.utils.book_new();ws["!cols"]=[6,24,18,8,12,10,12,12,38,40,20,20,20,14].map(w=>({wch:w}));
+ XLSX.utils.book_append_sheet(wb,ws,"Điểm thi");XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(det),"Chi tiết từng câu");XLSX.writeFile(wb,"diem-thi.xlsx")}
+
+/* ===== KHỞI ĐỘNG ===== */
+(async()=>{
+ try{S.cfg=Object.assign(defCfg(),await DB.get("pub/config")||{})}catch(e){S.dbErr=e.message}
+ // Đang thi mà tải lại trang => khóa bài
+ try{const id=sessionStorage.getItem("examActive");if(id){sessionStorage.removeItem("examActive");const r=await DB.get("results/"+id);
+  if(r){if(r.status==="doing"){const u={status:"violation",reason:"Tải lại / thoát trang khi đang thi",end:Date.now(),violationAt:Date.now(),score:0};Object.assign(r,u);await DB.patch("results/"+id,u)}
+   if(r.status==="violation"){S.res=r;S.user={id,name:r.name};S.view="result";render();return violationModal(r)}}}}catch(e){}
+ if(location.hash==="#admin")return openAdmin();
+ render()})();
+</script>
+</body>
+</html>
